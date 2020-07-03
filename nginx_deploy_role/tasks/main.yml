@@ -1,0 +1,111 @@
+---
+# tasks file for nginx_deploy_role
+
+- name: Copy NGINX Server Configurations
+  copy:
+    src: conf.d/
+    dest: /etc/nginx/conf.d
+    owner: root
+  
+- name: Copy NGINX.Conf
+  copy:
+    src: "{{ item }}"
+    dest: /etc/nginx/
+    owner: root
+  with_items:
+    - nginx.conf
+    - fastcgi_params
+    - fastcgi.conf
+
+- name: Self Signed Cert Tasks
+  block:
+      - name: Create NGINX Directory
+        file: 
+          path: /etc/ssl/nginx 
+          state: directory
+        
+
+      - name: Create NGINX Private Directory
+        file: 
+          path: /etc/ssl/nginx/private 
+          state: directory
+       
+
+      - name: Create NGINX Directory
+        file:
+          path: /etc/ssl/csr 
+          state: directory
+        
+
+      - name: Create Private Key
+        openssl_privatekey:
+          path: /etc/ssl/nginx/private/server.key 
+        
+
+      - name: Create CSR from Private Key
+        openssl_csr:
+          path: /etc/ssl/csr/server.csr 
+          privatekey_path: /etc/ssl/nginx/private/server.key 
+          state_or_province_name: GA
+          organization_name: CPB
+          country_name: US
+          common_name: C2_Server
+        
+
+      - name: Create Self-Signed Cert
+        openssl_certificate:
+          path: /etc/ssl/nginx/server.crt 
+          csr_path: /etc/ssl/csr/server.csr 
+          privatekey_path: /etc/ssl/nginx/private/server.key 
+          provider: selfsigned
+          selfsigned_not_after: "+365d"     
+
+
+- name: Set Firewall HTTP
+  firewalld:
+    zone: public
+    service: http
+    permanent: yes
+    state: enabled
+ 
+
+- name: Set Firewall HTTPS
+  firewalld:
+    zone: public
+    service: https
+    permanent: yes
+    state: enabled
+
+
+- name: Restart firewalld
+  command: firewall-cmd --reload
+
+
+#################################
+# Ohhhh SELINUX...#
+#################################
+
+- name: selinux targets
+  sefcontext:
+    target: /opt/mattermost/*
+    setype: httpd_sys_rw_content_t
+    state: present
+ 
+
+#################################
+# Systemd!!#
+#################################
+  
+- name: Reload systemd
+  systemd:
+    daemon_reload: yes
+
+
+- name: Set Nginx to start automatically
+  systemd:
+    name: nginx
+    state: started
+    enabled: yes
+
+
+  

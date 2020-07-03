@@ -1,0 +1,86 @@
+---
+#################################
+# SELINUX Configuration Changes #
+#################################
+#- name: Include SeLinux Tasks
+  #include_tasks: selinux.yml
+
+#- name: PHP RW to NextCloud NGINX Dir
+#  command: chcon -t httpd_sys_rw_content_t /usr/share/nginx/nextcloud/ -R
+#  become: yes
+
+- name: Allow NGINX Connects
+  command: setsebool -P httpd_can_network_connect 1
+  become: yes
+
+#- name: Allow NGINX access to php
+#  command: setfacl -R -m u:nginx:rwx {{ item }}
+#  loop:
+#    - /var/lib/php/opcache/
+#    - /var/lib/php/session/
+#    - /var/lib/php/wsdlcache/
+#  become: yes 
+
+#################################
+# SELINUX Configuration Changes #
+#################################
+- name: selinux targets (html)
+  sefcontext:
+    target: "{{ item }}"
+    setype: httpd_sys_content_t
+    state: present
+  become: yes
+  with_items:  
+    - '/var/www/html'
+    - "/opt/redmine"
+    
+
+- name: selinux targets(RWContent)
+  sefcontext:
+    target: "{{ item }}"
+    setype: httpd_sys_rw_content_t
+    state: present
+  become: yes  
+  with_items: 
+    - '{{ nc_datadir }}(/.*)?'
+    - '/var/www/html/nextcloud/config(/.*)?'
+    - '/var/www/html/nextcloud/apps(/.*)?'
+    - '/var/www/html/nextcloud/assets(/.*)?'
+    - '/var/www/html/nextcloud/.htaccess'
+    - '/var/www/html/nextcloud/.user.ini'
+    - '/var/www/html/nextcloud/3rdparty/aws/aws-sdk-php/src/data/logs(/.*)?'
+    - '/usr/local/tmp(/.*)?'
+    - '/upload_tmp(/.*)?'
+    - '/opt/redmine/public/plugin_assets'
+    - '/opt/redmine/log'
+    - '/opt/redmine/tmp'
+
+- name: enable seboolean settings
+  command: setsebool -P {{ item }} on
+  become: yes
+  loop:
+    - httpd_can_sendmail
+    - httpd_unified
+    - httpd_graceful_shutdown
+    - httpd_can_network_relay
+    - httpd_can_network_connect
+    - httpd_can_network_connect_db
+    - daemons_enable_cluster_mode
+    - httpd_execmem
+
+#- name: enable seboolean settings
+#  command: semodule -i {{ role_path }}/files/{{ item }}
+#  become: yes
+#  loop:
+#    - httpd-to-php-fpm.pp
+#    - httpd-to-upload-tmp.pp
+
+- name: restorecon 
+  command: restorecon -Rv {{ item }}
+  become: yes
+  loop:
+    - '/var/www/html/nextcloud/'
+    - '{{ nc_datadir }}'
+    - '/var/www/html/'
+    - '/opt/redmine/'
+    

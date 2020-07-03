@@ -1,0 +1,38 @@
+---
+# vars file for nextcloud_deploy_role
+post_pass: SuperSecret12!@
+db_name: nextcloud
+ncuser: nextcloud
+ncuserpass: '"SuperSecret12!@"'
+
+www_user: nextcloud
+www_pass: SuperSecret12!@
+www_location: /var/www/html/
+nextcloud_home: "{{ www_location }}nextcloud/"
+
+nc_php: /opt/rh/rh-php73/root/usr/bin/php
+nc_admin: admin
+nc_passwd: SuperSecret12!@
+nc_db_type: pgsql
+nc_db_host: "/var/run/postgresql"
+nc_datadir: /var/www/html/nextcloud/data
+
+nc_build: /opt/rh/rh-php73/root/usr/bin/php occ maintenance:install --admin-user {{ nc_admin }} --admin-pass '{{ nc_passwd }}' --database {{ nc_db_type }} --database-name {{ db_name }} --database-user {{ ncuser }} --database-pass {{ ncuserpass }} --data-dir {{ nc_datadir }} --database-host "{{nc_db_host}}"
+
+domain0: trusted_domains 0
+domain0val: localhost
+domain1: trusted_domains 1
+domain2: trusted_domains 2
+domain3: trusted_domains 3
+##### domain1val = IPaddy pulled during run_once
+memcach0: memcached_servers 0 0
+memcach0val: localhost
+memcach1: memcached_servers 0 1
+memcach1val: 11211
+
+mem_local: memcache.local
+mem_localval: '\OC\Memcache\Memcached'
+mem_dist: memcache.distributed
+mem_distval: '\OC\Memcache\Memcached'
+
+

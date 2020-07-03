@@ -1,0 +1,4 @@
+---
+# vars file for postgres12_deploy_role
+post_pass: SuperSecret12!@
+psql_pass: SuperSecret12!@

@@ -1,0 +1,55 @@
+---
+# tasks file for postgres12_deploy_role
+
+- name: Add PostgreSQL 12 Repository
+  yum: 
+    name: https://download.postgresql.org/pub/repos/yum/reporpms/EL-7-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+    disable_gpg_check: yes
+
+
+- name: Perform YUM Update
+  yum:
+    name: '*'
+    state: latest 
+  
+
+- name: Install PostgreSQL 12
+  yum:
+    name:
+      - postgresql12
+      - postgresql12-server
+    state: present
+  
+
+- name: Initialize base Database
+  command: /usr/pgsql-12/bin/postgresql-12-setup initdb
+
+  
+
+- name: Change Postgres User
+  user:
+    name: postgres
+    comment: Postgres User Account
+    password: "{{'{{ post_pass }}' | password_hash('sha512')}}"
+    state: present
+  
+  no_log: true
+
+- name: Set Postgres to start automatically
+  systemd:
+    name: postgresql-12
+    state: started
+    enabled: yes
+  
+
+
+- name: Edit postgres.conf log permissions
+  lineinfile:
+    dest: /var/lib/pgsql/12/data/postgresql.conf
+    regexp: '#log_file_mode = 0600'
+    line: 'log_file_mode = 0600'
+    backrefs: yes
+  become: yes
+  become_user: postgres
+
+  

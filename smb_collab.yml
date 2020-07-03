@@ -1,0 +1,24 @@
+---
+- hosts: SMB_Server 
+  
+   pre_tasks:
+    - name: Conduct Pre-Flight Configurations and Installations
+      include_role:
+        name: pre-flight_role
+    
+    - debug:
+        msg: "{{ item }}"
+      with_items:
+        - System Dependencies Installed
+        - Setting up the Standalone C2_Server. Postgres 12, NGINX(PassengerMod), Redmine, MatterMost, NextCloud.
+
+    
+  roles: 
+    - postgres12_deploy_role
+    - redmine_deploy_role
+    - nginx_deploy_role
+    - mattermost_deploy_role
+    - nextcloud_deploy_role
+  become: yes
+
+      

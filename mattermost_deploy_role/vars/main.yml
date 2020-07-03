@@ -1,0 +1,11 @@
+---
+# vars file for mattermost_deploy_role
+post_pass: SuperSecret12!@
+db_name: mattermost 
+mmuser: mattermost
+mattermost_user: mattermost
+mmuserpass: 'SuperSecret12!@'
+mattermost_pass: "SuperSecret12!@"
+mattermostadminpass: 'SuperSecret12!@'
+mattermostemail: gingeritpro@gmail.com
+home: /opt/mattermost

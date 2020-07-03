@@ -1,0 +1,7 @@
+---
+# handlers file for nginx_deploy_role
+- name: restart_nginx
+  systemd:
+    name: nginx
+    state: restarted
+    become: yes

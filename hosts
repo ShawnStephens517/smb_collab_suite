@@ -1,0 +1,8 @@
+# Test Inventory File
+[Tests]
+10.10.10.11
+testsmb
+
+
+[SMB_Server]
+smbserver

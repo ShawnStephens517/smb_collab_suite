@@ -1,0 +1,224 @@
+---
+# tasks file for mattermost_deploy_role
+
+#################################
+# Database Ops #
+#################################
+
+- name: Create Mattermost Database
+  postgresql_db:
+     name: "{{ db_name }}"
+     login_password: '{{ post_pass }}'
+  become: yes
+  become_user: postgres
+  no_log: true
+
+- name: Create Mattermost User
+  postgresql_user:
+    db: "{{ db_name }}"
+    name: "{{ mmuser }}"
+    password: '{{ mmuserpass }}'
+    encrypted: yes
+    priv: ALL
+    state: present
+  become: yes
+  become_user: postgres
+  no_log: true
+
+- name: Change Mattermost DB Owner
+  postgresql_owner:
+    db: "{{ db_name }}"
+    new_owner: "{{ mmuser }}"
+    obj_name: "{{ db_name }}"
+    obj_type: database
+  become: yes
+  become_user: postgres
+
+- name: Reduce Mattermost DB Privleges
+  postgresql_user:
+    name: "{{ mmuser }}"
+    role_attr_flags: NOCREATEDB,NOSUPERUSER 
+  become: yes
+  become_user: postgres
+
+- name: Modifying PG_HBA File (local)
+  postgresql_pg_hba:
+    dest: /var/lib/pgsql/12/data/pg_hba.conf
+    contype: local
+    method: trust
+    state: present
+  become: yes
+  become_user: postgres
+
+- name: Modifying PG_HBA File (Host)
+  postgresql_pg_hba:
+    dest: /var/lib/pgsql/12/data/pg_hba.conf
+    contype: host
+    databases: all
+    users: all
+    address: 127.0.0.1/32
+    method: trust
+    state: present
+  become: yes
+  become_user: postgres
+
+- name: Restart Postgres
+  systemd:
+    name: postgresql-12
+    state: restarted
+  
+#################################
+# Mattermost File Ops #
+#################################
+
+- name: Download Mattermost files
+  get_url:
+    url: https://releases.mattermost.com/5.24.2/mattermost-5.24.2-linux-amd64.tar.gz
+    dest: /opt/mattermost.tgz
+
+- name: Un-Tar Mattermost Directory
+  command: tar -zxf /opt/mattermost.tgz
+
+
+- name: Move Directory to Opt
+  command: mv mattermost /opt
+ 
+
+- name: Create Mattermost Data Directory (User Uploads Location)
+  file:
+    path: /opt/mattermost/data
+    state: directory
+
+  
+#################################
+# System User/Group Create #
+#################################
+
+- name: Create Mattermost System User
+  user:
+    name: "{{mattermost_user}}"
+    comment: Mattermost User Account
+    password: "{{ '{{ mattermost_pass }}' | password_hash('sha512') }}"
+    state: present
+    home: "{{ home }}"
+    shell: /sbin/noLogin
+    system: yes
+
+- name: Create Mattermost System Group
+  group:
+    name: mattermost
+    state: present
+    system: yes
+
+
+
+#################################
+# More File Ops.... #
+#################################
+
+- name: Change Mattermost File OwnerShip
+  file: 
+    name: /opt/mattermost
+    recurse: yes
+    owner: "{{mattermost_user}}"
+    group: "{{mattermost_user}}"
+    mode: g+w
+ 
+  
+
+- name: Delete Mattermost.tgz
+  file:
+    path: /opt/mattermost.tgz
+    state: absent
+
+
+#################################
+# MatterMost Configuration #
+#################################  
+
+- name: Edit config.json SiteURL
+  lineinfile:
+    dest: /opt/mattermost/config/config.json
+    regexp: '"SiteURL": "localhost/mattermost",'
+    line: '    "SiteURL": "http://$HOSTNAME/mattermost",'
+    backrefs: yes
+
+
+
+- name: Edit config.json DB_Driver
+  lineinfile:
+    dest: /opt/mattermost/config/config.json
+    regexp: '"DriverName": "mysql",'
+    line: '    "DriverName": "postgres",'
+    backrefs: yes
+
+
+- name: Edit config.json Datasource
+  lineinfile:
+    dest: /opt/mattermost/config/config.json
+    regexp: '"DataSource":'
+    line: '    "DataSource": "postgres://{{ mmuser }}:{{ mmuserpass }}@127.0.0.1:5432/{{ db_name }}?sslmode=disable&connect_timeout=10",'
+    backrefs: yes
+
+
+- name: Edit config.json (OpenServer)
+  lineinfile:
+    dest: /opt/mattermost/config/config.json
+    regexp: '"EnableOpenServer":'
+    line: '    "EnableOpenServer": true,'
+    backrefs: yes  
+
+
+- name: Edit config.json (Remove Banner)
+  lineinfile:
+    dest: /opt/mattermost/config/config.json
+    regexp: '"EnablePreviewModebanner":'
+    line: '    "EnablePreviewModebanner": false,'
+    backrefs: yes  
+
+
+#################################
+# Systemd FTW! #
+#################################
+
+- name: Create mattermost systemd service
+  template:
+    src: mattermost.service.j2
+    dest: /etc/systemd/system/mattermost.service
+    owner: root
+    group: root
+    mode: '664'
+
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: yes
+ 
+
+- name: Set Mattermost to start automatically
+  systemd:
+    name: mattermost
+    state: started
+    enabled: yes
+ 
+
+
+#################################
+# More MatterMost Configurations #
+#################################
+- name: Create Admin User
+  command: mattermost user create --email {{ mattermostemail }} --system_admin --username admin --password '{{ mattermostadminpass }}'
+  args:
+    chdir: /opt/mattermost/bin
+  become: yes
+  become_user: "{{mattermost_user}}"
+  ignore_errors: true 
+  no_log: true 
+
+- name: Create CBT Team
+  command: ./bin/mattermost team create --name smbteam --display_name SMBteam
+  args:
+    chdir: /opt/mattermost
+  become: yes
+  become_user: mattermost 
+

@@ -1,0 +1,228 @@
+---
+# tasks file for redmine_deploy_role
+
+#################################
+# PostgreSQL Configurations#
+#################################
+
+- name: Create Redmine Database
+  postgresql_db:
+     name: "{{ db_name }}"
+     login_password: '{{ post_pass }}'
+     encoding: UTF-8
+  become: yes
+  become_user: postgres
+  no_log: true
+  ignore_errors: yes
+
+- name: Create Redmine DB User
+  postgresql_user:
+    db: "{{ db_name }}"
+    name: "{{ redbuser }}"
+    password: '{{ redbuserpass }}'
+    encrypted: yes
+    priv: ALL
+    state: present
+  become: yes
+  become_user: postgres
+  no_log: true
+  ignore_errors: yes
+
+- name: Change Redmine DB Owner
+  postgresql_owner:
+    db: "{{ db_name }}"
+    new_owner: "{{ redbuser }}"
+    obj_name: "{{ db_name }}"
+    obj_type: database
+  become: yes
+  become_user: postgres
+  ignore_errors: yes
+  
+
+
+#################################
+# Redmine File Operations#
+#################################
+
+- name: Upload Redmine files
+  copy:
+    src: redmine.tgz
+    dest: /opt/redmine.tgz
+
+
+- name: UnZip Redmine
+  unarchive:
+    src: /opt/redmine.tgz
+    dest: /opt/
+    creates: /opt/redmine-4.1.1/
+    remote_src: yes
+ 
+
+- name: Rename Dir
+  command: mv /opt/redmine-4.1.1/ /opt/redmine/
+
+
+#################################
+# System User/Group Create #
+#################################
+
+
+- name: Create "{{rm_user}}" System User
+  user:
+    name: "{{rm_user}}"
+    comment: Redmine User Account
+    password: "{{ '{{ rm_user_pass }}' | password_hash('sha512') }}"
+    state: present
+    home: /opt/redmine
+    system: yes
+ 
+
+  
+- name: Create "{{rm_user}}" System Group
+  group:
+    name: "{{rm_user}}"
+    state: present
+    system: yes
+ 
+
+- name: Change Redmine File OwnerShip
+  file: 
+    name: /opt/redmine/
+    recurse: yes
+    owner: "{{rm_user}}"
+    group: "{{rm_user}}"
+    mode: '750'
+  
+
+#################################
+# Phusion Plugin (NGINX)#
+#################################
+
+- name: Add Phusion Repository from Source
+  get_url:
+    url: https://oss-binaries.phusionpassenger.com/yum/definitions/el-passenger.repo
+    dest: /etc/yum.repos.d/passenger.repo
+  
+
+- name: Install Passenger Nginx
+  block:
+      - name: Install NGINX Mod Passenger
+        yum: 
+          name: nginx-mod-http-passenger
+      
+      - name: Create Soft Link to Vendor Ruby
+        shell: ln -s /usr/lib64/ruby/vendor_ruby/passenger_native_support.so passenger_native_support.so
+        args:
+          chdir: '/opt/rh/rh-ruby26/root/usr/local/lib64/'
+      
+      - name: Create New Passenger Instance Directory
+        shell: |
+          mkdir /var/lib/passenger-instreg
+          chcon -t var_run_t /var/lib/passenger-instreg
+  
+#################################
+# Redmine Ruby Installation#
+#################################
+- name: Install RVM and Ruby 2.6 Redmine User
+  block:    
+      - name: Add GPG Key Server 
+        shell: gpg2 --keyserver hkp://pool.sks-keyservers.net --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3 7D2BAF1CF37B13E2069D6956105BD0E739499BDB
+        become: yes
+        become_user: redmine
+        args:
+          chdir: /opt/redmine
+          executable: /bin/bash  
+
+      - name: Pull Latest RVM
+        shell: \curl -sSL https://get.rvm.io | bash -s stable
+        become: yes
+        become_user: redmine
+        args:
+          chdir: /opt/redmine
+          executable: /bin/bash
+        
+      #- name: Modify RVM Group
+      #  shell: usermod -aG rvm redmine
+      
+      - name: Circumvent Sourcing Issues
+        shell: |
+           source scripts/rvm
+           source scripts/rvm
+           rvm install ruby-2.6
+           rvm use ruby-2.6 --default
+        become: yes
+        become_user: redmine
+        args:
+          chdir: /opt/redmine/.rvm
+          executable: /bin/bash
+      
+      - name: Install Bundler (rvm)
+        shell: |
+           source .rvm/scripts/rvm
+           source .rvm/scripts/rvm
+           gem install bundler
+        become: yes
+        become_user: redmine
+        args:
+          chdir: /opt/redmine
+  ignore_errors: true
+
+#################################
+# Redmine Installation#
+#################################
+
+
+- name: Build Redmine (with Rake and Dummy Data)
+  shell: | 
+    PATH=$PATH:/opt/redmine/bin
+    source .rvm/scripts/rvm
+    source .rvm/scripts/rvm
+    bundle install --without development test
+    bundle exec rake generate_secret_token
+    RAILS_ENV=production bundle exec rake db:migrate
+    RAILS_ENV=production REDMINE_LANG=en bundle exec rake redmine:load_default_data
+  become: yes
+  become_user: "{{rm_user}}"
+  args:
+    chdir: "{{ home_dir }}"
+    executable: /bin/bash
+  ignore_errors: true
+
+- name: Delete Redmine.tgz
+  file:
+    path: /opt/redmine.tgz
+    state: absent
+ 
+  
+- name: Change Redmine Permissions
+  file:
+    path: "{{ item }}"
+    mode: '0755'
+    recurse: yes
+  
+  with_items:
+    - /opt/redmine/temp
+    - /opt/redmine/log
+    - /opt/redmine/files
+    - /opt/redmine/public/plugin_assets
+
+- name: NextCloud Prep (PHP)
+  block:
+      - name: Push PHP-FPM File
+        copy:
+          src: www.conf
+          dest: /etc/opt/rh/rh-php73/php-fpm.d/www.conf
+       
+
+      - name: Modify PHP.INI
+        lineinfile:
+          dest: /etc/opt/rh/rh-php73/php.ini
+          regexp: '"memory_limit = 128M"'
+          line: '"memory_limit = 512M"'
+        
+      - name: Enable PHP-FPM
+        systemd:
+          name: rh-php73-php-fpm
+          state: started
+          enabled: yes
+        

@@ -1,0 +1,11 @@
+---
+# vars file for redmine_deploy_role
+redbuser: redmine
+redbuserpass: 'SuperSecret12!@'
+db_name: redmine
+post_pass: SuperSecret12!@
+rm_user: redmine
+rm_user_pass: "SuperSecret12!@"
+admin_pass: 'SuperSecret12!@'
+home_dir: /opt/redmine
+sourcing:  source /opt/rh/rh-ruby26/enable

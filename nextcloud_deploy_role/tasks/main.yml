@@ -1,0 +1,260 @@
+---
+# tasks file for nextcloud_deploy_role
+
+#################################
+# PostgreSQL Configurations#
+#################################
+- name: Create NextCloud Database
+  postgresql_db:
+     name: "{{ db_name }}"
+     login_password: '{{ post_pass }}'
+  become: yes
+  become_user: postgres
+  ignore_errors: true
+  no_log: true
+
+- name: Create NextCloud DB User
+  postgresql_user:
+    db: "{{ db_name }}"
+    name: "{{ ncuser }}"
+    password: '{{ ncuserpass }}'
+    encrypted: yes
+    priv: ALL
+    state: present
+  become: yes
+  become_user: postgres
+  no_log: true
+  ignore_errors: true
+
+- name: Change NextCloud DB Owner
+  postgresql_owner:
+    db: "{{ db_name }}"
+    new_owner: "{{ ncuser }}"
+    obj_name: "{{ db_name }}"
+    obj_type: database
+  become: yes
+  become_user: postgres
+  ignore_errors: true
+  
+- name: Reduce NextCloud DB Privleges
+  postgresql_user:
+    name: "{{ ncuser }}"
+    role_attr_flags: NOCREATEDB
+  become: yes
+  become_user: postgres
+  ignore_errors: true
+
+
+#################################
+# Creates the Directories #
+#################################
+- name: Create Required Dirs (WWW)
+  file:
+    path: /var/www
+    state: directory
+
+  ignore_errors: true
+
+- name: Create Required Dirs (html)
+  file:
+    path: "{{ www_location }}"
+    state: directory
+
+  ignore_errors: true
+
+
+#################################
+# Upload NextCloud From Controller #
+#################################
+- name: Download NextCloud files
+  get_url:
+    url: https://download.nextcloud.com/server/releases/nextcloud-19.0.0.tar.bz2
+    dest: "{{ www_location }}"
+  ignore_errors: true
+
+- name: UnZip NextCloud
+  unarchive:
+    src: "{{ www_location }}/nextcloud-19.0.0.tar.bz2"
+    dest: "{{ www_location }}"
+    creates: "{{ nextcloud_home }}"
+    remote_src: yes
+  ignore_errors: true
+
+- name: Remove unwanted Zip
+  file:
+    path: "{{ www_location }}/nextcloud-19.0.0.tar.bz2"
+    state: absent
+  ignore_errors: true
+
+- name: Create Required Dirs {{ nc_datadir }}
+  file:
+    path: "{{ nc_datadir }}"
+    state: directory
+  ignore_errors: true
+ 
+#################################
+# System User/Group Create #
+#################################
+- name: Create "{{www_user}}" System User
+  user:
+    name: "{{www_user}}"
+    comment: Nextcloud User
+    password: "{{'{{ www_pass }}' | password_hash('sha512')}}"
+    state: present
+    home: "{{ nextcloud_home }}"
+    shell: /sbin/noLogin
+    system: yes
+  ignore_errors: true
+  
+- name: Create "{{www_user}}" System Group
+  group:
+    name: "{{www_user}}"
+    state: present
+    system: yes
+
+  ignore_errors: true
+
+- name: Change NextCloud File OwnerShip
+  file: 
+    name: "{{ nextcloud_home }}"
+    recurse: yes
+    owner: "{{www_user}}"
+    group: "{{www_user}}"
+    mode: '774'
+  become: true
+  ignore_errors: true
+
+#################################
+# NextCloud Set Up #
+#################################
+- name: Setup Nextcloud
+  become: yes
+  become_user: "{{www_user}}"
+  shell: "{{nc_build}}"
+  args:
+    chdir: "{{ nextcloud_home }}"
+
+#################################
+# NextCloud Configuration Changes #
+#################################
+- name: set nextcloud System config.php values for {{domain0val}}
+  become_user: "{{ www_user }}"
+  become: yes
+  shell: >
+    "{{nc_php}}" occ config:system:set {{ domain0}} --value={{ domain0val }}
+  args:
+    chdir: "{{ nextcloud_home }}"
+#################################
+
+- name: set nextcloud System config.php values IP Address
+  become_user: "{{ www_user }}"
+  become: yes
+  shell: >
+    "{{nc_php}}" occ config:system:set {{ domain1}} --value="{{ ansible_facts.eth0.ipv4.address }}"
+  args:
+    chdir: "{{ nextcloud_home }}"
+  ignore_errors: true
+
+#################################
+
+- name: set nextcloud System config.php values Hostname
+  become_user: "{{ www_user }}"
+  become: yes
+  shell: >
+    "{{nc_php}}" occ config:system:set {{ domain2}} --value="{{ ansible_hostname}}"
+  args:
+    chdir: "{{ nextcloud_home }}"
+  ignore_errors: true
+
+#################################
+
+- name: set nextcloud System config.php values FQDN Address
+  become_user: "{{ www_user }}"
+  become: yes
+  shell: >
+    "{{nc_php}}" occ config:system:set {{ domain3}} --value="{{ ansible_fqdn }}"
+  args:
+    chdir: "{{ nextcloud_home }}"
+  ignore_errors: true  
+
+#################################
+
+- name: Change NextCloud Config File
+  file: 
+    name: "{{ nextcloud_home }}config/config.php"
+    owner: "{{www_user}}"
+    group: "{{www_user}}"
+    mode: '660'
+
+#################################
+
+- name: Change NextCloud Data Dir
+  file: 
+    name: "{{ nc_datadir }}"
+    recurse: yes
+    owner: "{{www_user}}"
+    group: "{{www_user}}"
+    mode: '0770'
+  ignore_errors: true
+
+- name: Change PHP Session Owner
+  file: 
+    name: '/var/opt/rh/rh-php73/lib/php'
+    recurse: yes
+    owner: "{{www_user}}"
+    group: "{{www_user}}"
+  ignore_errors: true
+
+- name: Create CPB Links Page
+  copy:
+    src: "{{ item }}"
+    dest: "{{ www_location }}"
+  with_items:
+    - cpbnerd-bg.png
+    - index.html
+
+#################################
+#///////////////////////////////#
+#          SELINUX....          #
+#################################
+
+- name: Selinux Tasks for NextCloud and Redmine
+  include_tasks: selinux.yml
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: Restart Postgres
+  systemd:
+    name: postgresql-12
+    state: restarted
+
+
+- name: add nginx to nextcloud group
+  shell: usermod -aG nextcloud,redmine nginx
+
+- name: Restart NGINX
+  systemd:
+    name: nginx
+    state: restarted
+
+- name: Restart PHP
+  systemd:
+    name: rh-php73-php-fpm
+    state: restarted
+
+
+- name: Restart Mattermost
+  systemd:
+    name: mattermost
+    state: restarted
+
+- name: Start Passenger for Redmine Hosting
+  shell: | 
+   source /opt/rh/rh-ruby26/enable
+   passenger start --daemonize --address 127.0.0.1 --port 3000 --user redmine -e production --friendly-error-page
+  args:
+    chdir: /opt/redmine/  
+
+  
